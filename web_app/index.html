@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NeuroBand v3</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+<style>
+:root{
+  --bg:#080812;--surf:#11112a;--border:#22224a;
+  --cyan:#00d4ff;--green:#00e87a;--red:#ff4060;
+  --yellow:#ffe050;--dim:#5a5a88;--text:#dde0f0;
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+
+/* Header */
+header{
+  background:linear-gradient(135deg,#0a0a22,#181840);
+  border-bottom:1px solid var(--border);
+  padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
+}
+header h1{font-size:1.15rem;color:var(--cyan);letter-spacing:1px}
+.badge{font-size:.72rem;padding:3px 9px;border-radius:20px;font-weight:700}
+.ok{background:#00e87a18;color:var(--green);border:1px solid var(--green)}
+.warn{background:#ffe05018;color:var(--yellow);border:1px solid var(--yellow)}
+.bad{background:#ff406018;color:var(--red);border:1px solid var(--red)}
+
+/* Tabs */
+.tabs{display:flex;gap:3px;padding:10px 12px 0;border-bottom:1px solid var(--border)}
+.tab{
+  padding:7px 16px;border-radius:7px 7px 0 0;font-size:.85rem;
+  background:none;border:1px solid transparent;border-bottom:none;
+  color:var(--dim);cursor:pointer;transition:.15s
+}
+.tab.on{background:var(--surf);border-color:var(--border);color:var(--cyan)}
+
+/* Panels */
+.panel{display:none;padding:14px}
+.panel.on{display:block}
+
+/* Card */
+.card{background:var(--surf);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.card h3{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+
+/* Big prediction */
+#big-word{
+  font-size:3.8rem;font-weight:900;text-align:center;
+  padding:16px 0 8px;letter-spacing:3px;transition:color .25s
+}
+#big-word.REST{color:var(--dim)}
+#big-word.active{color:var(--green)}
+
+/* Confidence bar */
+.cbar-wrap{background:#191930;border-radius:6px;height:16px;overflow:hidden;margin:4px 0}
+.cbar-fill{height:100%;border-radius:6px;transition:width .3s,background .3s}
+.clabel{text-align:center;font-size:.8rem;color:var(--dim);margin-top:3px}
+
+/* Vote breakdown */
+#vote-breakdown{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.vchip{
+  display:flex;align-items:center;gap:5px;
+  background:#191930;border:1px solid var(--border);
+  border-radius:6px;padding:4px 9px;font-size:.78rem;
+}
+.vchip .vbar{width:50px;height:6px;background:#222240;border-radius:3px;overflow:hidden}
+.vchip .vfill{height:100%;border-radius:3px;background:var(--cyan);transition:width .3s}
+
+/* History */
+#hist-list{list-style:none;max-height:130px;overflow-y:auto}
+#hist-list li{
+  display:flex;justify-content:space-between;
+  padding:4px 8px;border-radius:5px;font-size:.82rem;
+  margin-bottom:3px;background:#141428
+}
+
+/* Words */
+.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.wchip{
+  background:#141428;border:1px solid var(--border);border-radius:8px;
+  padding:9px 10px;display:flex;flex-direction:column;gap:4px
+}
+.wchip .wn{font-weight:700;font-size:.88rem;color:var(--cyan)}
+.wchip .wc{font-size:.72rem;color:var(--dim)}
+.wchip .wb{height:4px;border-radius:2px;background:#222240;overflow:hidden}
+.wchip .wbf{height:100%;background:var(--cyan);transition:width .5s}
+.wchip .wa{display:flex;gap:4px;margin-top:5px}
+.wchip button{flex:1;padding:4px;font-size:.68rem;border-radius:5px;border:none;cursor:pointer}
+.btrain{background:var(--cyan);color:#000;font-weight:700}
+.bclear{background:#1e1e3c;color:var(--dim)}
+.bdel{background:#2a1020;color:var(--red)}
+
+.add-row{display:flex;gap:8px;margin-top:10px}
+.add-row input{
+  flex:1;padding:8px 11px;border-radius:7px;
+  border:1px solid var(--border);background:#141428;
+  color:var(--text);font-size:.88rem;text-transform:uppercase
+}
+.add-row input::placeholder{text-transform:none;color:var(--dim)}
+.bp{padding:8px 16px;border-radius:7px;border:none;cursor:pointer;background:var(--cyan);color:#000;font-weight:700;font-size:.88rem}
+.bs{padding:8px 16px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-size:.88rem}
+
+/* Train */
+#tbox{background:#0a180a;border:1px solid var(--green);border-radius:var(--r);padding:18px;text-align:center;display:none;margin-bottom:12px}
+#t-phase{font-size:1.8rem;font-weight:800;margin-bottom:6px}
+#t-word{font-size:1.2rem;color:var(--cyan);margin-bottom:10px}
+.pbar-wrap{background:#182018;border-radius:6px;height:16px;overflow:hidden;margin-bottom:6px}
+.pbar-fill{height:100%;border-radius:6px;background:var(--green);transition:width .4s}
+#t-info{font-size:.8rem;color:var(--dim)}
+#tlog{max-height:160px;overflow-y:auto;font-size:.75rem;color:var(--dim);background:#0a0a1a;padding:9px;border-radius:7px;font-family:monospace}
+#tlog p{margin-bottom:2px}
+#tlog .tok{color:var(--green)}#tlog .twarn{color:var(--yellow)}#tlog .tinfo{color:var(--cyan)}
+
+/* Toast */
+#toast{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  background:var(--surf);border:1px solid var(--border);
+  border-radius:9px;padding:9px 18px;font-size:.82rem;
+  opacity:0;transition:opacity .25s;pointer-events:none;z-index:99;white-space:nowrap
+}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧠 NeuroBand v3</h1>
+  <span id="cbadge" class="badge bad">Offline</span>
+</header>
+
+<div class="tabs">
+  <button class="tab on"  onclick="go('live')">Live</button>
+  <button class="tab"     onclick="go('words')">Words</button>
+  <button class="tab"     onclick="go('train')">Train</button>
+</div>
+
+<!-- ═══ LIVE ═════════════════════════════════════════════════════════════════ -->
+<div id="tab-live" class="panel on">
+  <div class="card">
+    <h3>Prediction</h3>
+    <div id="big-word" class="REST">REST</div>
+    <div class="cbar-wrap"><div class="cbar-fill" id="cbar" style="width:0%;background:var(--dim)"></div></div>
+    <div class="clabel" id="clabel">Confidence: —</div>
+
+    <div id="vote-breakdown"></div>
+  </div>
+
+  <div class="card">
+    <h3>Command History</h3>
+    <ul id="hist-list"></ul>
+  </div>
+
+  <div class="card" style="font-size:.82rem">
+    <h3>Session</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+      <div>Samples: <b id="s-total" style="color:var(--cyan)">—</b></div>
+      <div>Words: <b id="s-words" style="color:var(--cyan)">—</b></div>
+      <div>k-NN: <b id="s-knn" style="color:var(--dim)">—</b></div>
+      <div>Vote window: <b style="color:var(--cyan)">15</b></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ WORDS ════════════════════════════════════════════════════════════════ -->
+<div id="tab-words" class="panel">
+  <div class="card">
+    <h3>Active Words (<span id="wcount">0</span>/10)</h3>
+    <div id="wgrid" class="wgrid"></div>
+    <div class="add-row" style="margin-top:12px">
+      <input id="winput" placeholder="New word..." maxlength="20"
+             oninput="this.value=this.value.toUpperCase()"
+             onkeydown="if(event.key==='Enter')addWord()">
+      <button class="bp" onclick="addWord()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TRAIN ════════════════════════════════════════════════════════════════ -->
+<div id="tab-train" class="panel">
+  <div class="card">
+    <h3>Start Training Session</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <select id="tsel" style="flex:1;padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:#141428;color:var(--text);font-size:.88rem"></select>
+      <input id="ttrials" type="number" value="40" min="5" max="100"
+             style="width:65px;padding:8px;border-radius:7px;border:1px solid var(--border);background:#141428;color:var(--text);text-align:center;font-size:.88rem">
+      <span style="font-size:.75rem;color:var(--dim)">trials</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="bp" onclick="startTrain()" style="flex:1">▶ Start</button>
+      <button class="bs" onclick="stopTrain()"  style="flex:1">■ Stop</button>
+    </div>
+  </div>
+
+  <div id="tbox">
+    <div id="t-phase">—</div>
+    <div id="t-word">—</div>
+    <div class="pbar-wrap"><div class="pbar-fill" id="tprog" style="width:0%"></div></div>
+    <div id="t-info">—</div>
+  </div>
+
+  <div class="card">
+    <h3>Log</h3>
+    <div id="tlog"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const socket = io();
+let hist = [], _votes = {}, _words = [];
+const TARGET = 40;
+
+// ── Connection ────────────────────────────────────────────────────────────────
+socket.on('connect', () => {
+  document.getElementById('cbadge').textContent = 'Connected';
+  document.getElementById('cbadge').className   = 'badge ok';
+  fetchStatus();
+});
+socket.on('disconnect', () => {
+  document.getElementById('cbadge').textContent = 'Offline';
+  document.getElementById('cbadge').className   = 'badge bad';
+});
+
+// ── Prediction ────────────────────────────────────────────────────────────────
+socket.on('prediction', d => {
+  const el  = document.getElementById('big-word');
+  const pct = Math.round(d.confidence * 100);
+  const col = d.confidence < 0.5 ? 'var(--dim)'
+            : d.confidence < 0.65 ? 'var(--yellow)'
+            : d.confidence < 0.8  ? 'var(--cyan)' : 'var(--green)';
+
+  el.textContent = d.label;
+  el.className   = d.label === 'REST' ? 'REST' : 'active';
+
+  document.getElementById('cbar').style.cssText = `width:${pct}%;background:${col}`;
+  document.getElementById('clabel').textContent  =
+    d.confidence < 0.5
+      ? `Confidence: ${pct}% — below threshold (no output)`
+      : `Confidence: ${pct}%`;
+
+  // Vote breakdown chips
+  if (d.votes) renderVotes(d.votes, d.label);
+
+  if (d.label !== 'REST' && d.confidence >= 0.5) {
+    const ts = new Date(d.timestamp * 1000).toLocaleTimeString();
+    hist.unshift({label: d.label, conf: pct, time: ts});
+    if (hist.length > 15) hist.pop();
+    renderHist();
+  }
+});
+
+function renderVotes(votes, winner) {
+  const div  = document.getElementById('vote-breakdown');
+  const tot  = Object.values(votes).reduce((a,b)=>a+b,0) || 1;
+  const col  = w => w === winner ? 'var(--green)' : 'var(--cyan)';
+  div.innerHTML = Object.entries(votes)
+    .sort((a,b)=>b[1]-a[1])
+    .map(([w,n]) => `
+      <div class="vchip">
+        <span style="color:${col(w)};font-weight:700">${w}</span>
+        <div class="vbar"><div class="vfill" style="width:${n/tot*100}%;background:${col(w)}"></div></div>
+        <span style="color:var(--dim)">${n}</span>
+      </div>`).join('');
+}
+
+function renderHist() {
+  const ul = document.getElementById('hist-list');
+  ul.innerHTML = hist.slice(0,10).map(h => `
+    <li>
+      <b style="color:var(--green)">${h.label}</b>
+      <span style="color:var(--dim)">${h.conf}%</span>
+      <span style="color:var(--dim);font-size:.7rem">${h.time}</span>
+    </li>`).join('');
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+socket.on('status_update', d => refreshStats(d));
+
+async function fetchStatus() {
+  try {
+    const d = await (await fetch('/api/status')).json();
+    _words = d.words || [];
+    refreshStats(d);
+    renderWords(_words, d.counts);
+    updateSel(_words);
+    document.getElementById('s-total').textContent = d.total || 0;
+    document.getElementById('s-words').textContent = _words.length;
+  } catch(e){}
+}
+
+function refreshStats(d) {
+  if (d.counts) {
+    const t = Object.values(d.counts).reduce((a,b)=>a+b,0);
+    document.getElementById('s-total').textContent = t;
+  }
+  if (d.knn_ready !== undefined) {
+    const el = document.getElementById('s-knn');
+    el.textContent = d.knn_ready ? '✓ Ready' : '✗ Not ready';
+    el.style.color = d.knn_ready ? 'var(--green)' : 'var(--red)';
+  }
+}
+
+// ── Words ─────────────────────────────────────────────────────────────────────
+socket.on('words_updated', d => {
+  _words = d.words || [];
+  renderWords(_words, d.counts);
+  updateSel(_words);
+  document.getElementById('wcount').textContent = _words.length;
+  document.getElementById('s-words').textContent = _words.length;
+});
+
+function renderWords(words, counts) {
+  document.getElementById('wcount').textContent = words.length;
+  document.getElementById('wgrid').innerHTML = words.map(w => {
+    const n = counts[w] || 0;
+    const p = Math.min(n/TARGET*100,100).toFixed(0);
+    const sc = n >= 3 ? 'var(--green)' : 'var(--yellow)';
+    return `
+    <div class="wchip">
+      <div class="wn">${w}</div>
+      <div class="wc" style="color:${sc}">${n} / ${TARGET}</div>
+      <div class="wb"><div class="wbf" style="width:${p}%"></div></div>
+      <div class="wa">
+        <button class="btrain" onclick="quickTrain('${w}')">Train</button>
+        <button class="bclear" onclick="clearWord('${w}')">Clear</button>
+        <button class="bdel"   onclick="removeWord('${w}')">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function addWord() {
+  const inp = document.getElementById('winput');
+  const word = inp.value.trim().toUpperCase();
+  if (!word) return;
+  const d = await post('/api/words/add', {word});
+  toast(d.msg, d.ok);
+  if (d.ok) inp.value = '';
+}
+async function removeWord(w) {
+  if (!confirm(`Remove "${w}" and all its data?`)) return;
+  const d = await post('/api/words/remove', {word: w});
+  toast(d.msg, d.ok);
+}
+async function clearWord(w) {
+  if (!confirm(`Clear training data for "${w}"?`)) return;
+  const d = await post('/api/words/clear', {word: w});
+  toast(d.msg, d.ok);
+  fetchStatus();
+}
+function updateSel(words) {
+  const sel = document.getElementById('tsel');
+  const cur = sel.value;
+  sel.innerHTML = words.map(w=>`<option${w===cur?' selected':''}>${w}</option>`).join('');
+}
+function quickTrain(w) {
+  document.getElementById('tsel').value = w;
+  go('train');
+  startTrain();
+}
+
+// ── Training ──────────────────────────────────────────────────────────────────
+socket.on('training_started', d => {
+  document.getElementById('tbox').style.display = 'block';
+  document.getElementById('t-word').textContent  = d.word;
+  document.getElementById('t-phase').textContent = 'GET READY';
+  document.getElementById('tprog').style.width   = '0%';
+  tlog(`Training "${d.word}" — ${d.trials} trials`, 'tinfo');
+});
+socket.on('training_cue', d => {
+  const phase = d.phase === 'THINK' ? `💭 THINK: ${d.word}` : '😌 REST';
+  document.getElementById('t-phase').textContent = phase;
+  document.getElementById('t-phase').style.color =
+    d.phase === 'THINK' ? 'var(--cyan)' : 'var(--dim)';
+});
+socket.on('training_sample', d => {
+  document.getElementById('tprog').style.width = (d.progress*100) + '%';
+  document.getElementById('t-info').textContent =
+    `Trial ${d.trial}/${d.total}  ·  ${d.collected} samples`;
+  if (d.error) tlog(`Trial ${d.trial}: ${d.error}`, 'twarn');
+  else         tlog(`✓ ${d.trial}/${d.total} — ${d.collected} samples`, 'tok');
+});
+socket.on('training_complete', d => {
+  tlog(`✅ Done! "${d.word}" — ${d.collected} samples`, 'tinfo');
+  document.getElementById('t-phase').textContent = '✅ Done';
+  fetchStatus();
+});
+
+async function startTrain() {
+  const word   = document.getElementById('tsel').value;
+  const trials = parseInt(document.getElementById('ttrials').value)||40;
+  if (!word) { toast('Select a word', false); return; }
+  const d = await post('/api/train/start', {word, trials});
+  toast(d.msg, d.ok);
+}
+async function stopTrain() {
+  const d = await post('/api/train/stop', {});
+  toast(d.msg, true);
+  document.getElementById('t-phase').textContent = '⛔ Stopped';
+}
+
+function tlog(msg, cls='') {
+  const el = document.getElementById('tlog');
+  const p  = document.createElement('p');
+  p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  if (cls) p.className = cls;
+  el.prepend(p);
+  while (el.children.length > 60) el.removeChild(el.lastChild);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function go(name) {
+  ['live','words','train'].forEach(n => {
+    document.getElementById('tab-'+n).classList.toggle('on', n===name);
+  });
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('on', ['live','words','train'][i]===name);
+  });
+  if (name==='words'||name==='train') fetchStatus();
+}
+
+async function post(url, body) {
+  try {
+    const r = await fetch(url, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    return r.json();
+  } catch(e) { return {ok:false,msg:'Network error'}; }
+}
+
+let _tt;
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = ok ? 'var(--green)' : 'var(--red)';
+  el.classList.add('show');
+  clearTimeout(_tt);
+  _tt = setTimeout(()=>el.classList.remove('show'), 2600);
+}
+
+fetchStatus();
+setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>

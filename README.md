@@ -6,6 +6,8 @@
 
 ```
 /home/pi/neuroband/
+├── web_app
+    └── index.htma
 ├── config.py                ← shared constants (edit this first)
 ├── adc_reader.py            ← CS1237 hardware driver + simulator
 ├── signal_processing.py     ← filtering pipeline

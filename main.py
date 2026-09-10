@@ -45,6 +45,7 @@ import collections
 import numpy as np
 
 import config
+import config_manager
 from adc_reader        import ADCReader
 from signal_processing import SignalProcessor
 from feature_extraction import FeatureExtractor
@@ -492,6 +493,14 @@ if __name__ == "__main__":
     ap.add_argument("--no-dash",    action="store_true",
                     help="[v2] Disable pygame GUI dashboard")
 
+    # Setup wizard flags [v3]
+    ap.add_argument("--setup",   action="store_true",
+                    help="[v3] Force the full configuration/training/calibration wizard")
+    ap.add_argument("--voice",   action="store_true",
+                    help="[v3] Reopen just the audio (voice/speed/pitch) configuration step")
+    ap.add_argument("--retrain", action="store_true",
+                    help="[v3] Reopen vocabulary + training + calibration (keeps device/audio config)")
+
     args = ap.parse_args()
 
     if args.v2:
@@ -503,10 +512,38 @@ if __name__ == "__main__":
             train_label  = args.train,
             train_duration = args.duration,
         )
+    elif args.voice:
+        import setup_wizard
+        setup_wizard.run_voice_only()
+    elif args.retrain:
+        import setup_wizard
+        setup_wizard.run_retrain(simulate=args.simulate)
     else:
+        # First-run (or explicit --setup) detection: don't jump straight into
+        # inference until the device has been configured, trained, and
+        # calibrated at least once. Safe to resume — setup state is persisted
+        # after each stage, so a power loss mid-wizard just re-enters here.
+        just_calibrated = False
+        if args.setup or not config_manager.is_ready():
+            import setup_wizard
+            ok = setup_wizard.run_full_wizard(simulate=args.simulate)
+            if not ok:
+                print("\nSetup did not complete. Run 'python main.py --setup' to resume.")
+                sys.exit(1)
+            if args.setup:
+                # --setup was explicit; don't also launch inference this run.
+                sys.exit(0)
+            just_calibrated = True  # wizard already captured a fresh baseline
+        else:
+            _cfg = config_manager.load_user_config()
+            print("Starting NeuroBand...\n")
+            print("Configuration found \u2713")
+            print("Model found \u2713" if os.path.exists(config.V3_KNN_MODEL_PATH) else "Model found \u2717")
+            print(f"Voice: {_cfg['audio']['voice']} \u2713\n")
+
         run_v3(
             simulate     = args.simulate,
-            skip_calib   = args.no_calib,
+            skip_calib   = args.no_calib or just_calibrated,
             skip_quality = args.no_quality,
             no_server    = args.no_server,
         )

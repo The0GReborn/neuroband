@@ -245,3 +245,22 @@ V5_EMA_BELIEF_FLOOR   = 1e-4
 
 # Optional SHA-256 integrity check on saved models (off by default)
 V5_MODEL_HASH_CHECK   = False
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Runtime settings (user-configurable via setup_wizard.py)
+# ══════════════════════════════════════════════════════════════════════════════
+START_SERVER          = True
+LOG_LEVEL             = "INFO"
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Apply saved user configuration (config/user_config.json), if any.
+#  Safe no-op on a fresh checkout with no wizard run yet.
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import sys as _sys
+    import config_manager as _config_manager
+    _config_manager.apply_overrides(_sys.modules[__name__])
+except Exception as _exc:  # pragma: no cover - never block startup on this
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "config: could not apply user overrides (%s)", _exc)

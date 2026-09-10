@@ -7,8 +7,9 @@ V3 mode: speaks any user-defined word. Generates + caches WAV on first use.
 
 Strategy (both modes):
   1. Pre-loaded pygame Sound object → play instantly (< 10 ms)
-  2. Generate WAV via pyttsx3 → cache to disk → load → play
-  3. Direct pyttsx3 TTS (no file)
+  2. Generate WAV via espeak-ng (voice/speed/pitch from config_manager
+     user_config.json, set via the setup wizard) → cache to disk → load → play
+  3. Direct espeak-ng TTS to speaker (no cached file)
   4. Print to terminal (last resort)
 
 Cooldown:
@@ -18,15 +19,22 @@ Cooldown:
 
 Generate v2 WAV files (one-time, run on any machine with speakers):
   python audio_output.py --generate-audio
+
+Voice/speed/pitch is configured by the setup wizard (setup_wizard.py) and
+read here from config_manager. list_voices() is used by the wizard to
+dynamically detect what's installed — never hard-code a voice list.
 """
 
 import os
 import time
+import shutil
+import subprocess
 import threading
 import logging
 import argparse
 
 import config
+import config_manager
 
 log = logging.getLogger(__name__)
 
@@ -40,15 +48,77 @@ except Exception as e:
     _PG = False
     log.warning("pygame unavailable: %s", e)
 
-try:
-    import pyttsx3
-    _tts = pyttsx3.init()
-    _tts.setProperty("rate", 140)
-    _tts.setProperty("volume", 1.0)
-    _TTS = True
-except Exception:
-    _TTS = False
-    log.warning("pyttsx3 unavailable — terminal fallback only.")
+ESPEAK_BIN = shutil.which("espeak-ng") or shutil.which("espeak")
+_TTS = ESPEAK_BIN is not None
+if not _TTS:
+    log.warning("espeak-ng not found on PATH — terminal fallback only. "
+                "Install with: sudo apt install espeak-ng")
+
+
+def _audio_settings() -> dict:
+    """Current voice/speed/pitch, from user_config.json (or safe defaults)."""
+    cfg = config_manager.load_user_config().get("audio", {})
+    return {
+        "voice": cfg.get("voice", "en"),
+        "speed": int(cfg.get("speed", 160)),
+        "pitch": int(cfg.get("pitch", 50)),
+    }
+
+
+def list_voices() -> list:
+    """
+    Dynamically detect installed espeak-ng voices.
+    Returns a list of dicts: [{"code": "en-gb", "name": "English (Great Britain)"}, ...]
+    Never hard-code voices — always query the actual installation.
+    """
+    if not _TTS:
+        return []
+    try:
+        out = subprocess.run(
+            [ESPEAK_BIN, "--voices"],
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout
+    except Exception as exc:
+        log.warning("list_voices(): espeak-ng --voices failed: %s", exc)
+        return []
+
+    voices = []
+    for line in out.splitlines()[1:]:  # skip header row
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        # Columns: Pty Language Age/Gender VoiceName File [Other Languages]
+        code = parts[1]
+        name = parts[3].replace("_", " ")
+        voices.append({"code": code, "name": name})
+    return voices
+
+
+def speak_direct(text: str, voice: str = None, speed: int = None, pitch: int = None,
+                  out_path: str = None) -> bool:
+    """
+    Speak (or render to out_path if given) using espeak-ng directly, with
+    explicit voice/speed/pitch overrides. Used by the setup wizard for
+    voice testing before settings are saved. Returns True on success.
+    """
+    if not _TTS:
+        return False
+    settings = _audio_settings()
+    voice = voice or settings["voice"]
+    speed = speed if speed is not None else settings["speed"]
+    pitch = pitch if pitch is not None else settings["pitch"]
+
+    cmd = [ESPEAK_BIN, "-v", voice, "-s", str(speed), "-p", str(pitch)]
+    if out_path:
+        cmd += ["-w", out_path]
+    cmd += [text]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=15, check=True)
+        return True
+    except Exception as exc:
+        log.error("speak_direct(): espeak-ng failed: %s", exc)
+        return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -215,14 +285,9 @@ class AudioOutput:
 
         # 3 — direct TTS
         log.debug("AudioOutput._play('%s'): falling back to direct TTS", word)
-        if _TTS:
-            try:
-                _tts.say(word.lower())
-                _tts.runAndWait()
-                log.debug("AudioOutput._play('%s'): TTS complete", word)
-                return
-            except Exception as exc:
-                log.error("TTS error: %s", exc)
+        if _TTS and speak_direct(word.lower()):
+            log.debug("AudioOutput._play('%s'): TTS complete", word)
+            return
 
         # 4 — terminal
         log.debug("AudioOutput._play('%s'): all audio methods failed — printing to terminal", word)
@@ -230,16 +295,15 @@ class AudioOutput:
 
     # ── Helpers ────────────────────────────────────────────────────────────────
     def _gen_wav(self, word: str, path: str):
-        """Generate WAV via pyttsx3 and save to disk."""
+        """Generate WAV via espeak-ng (voice/speed/pitch from user_config.json)."""
         if not _TTS:
-            log.warning("Cannot generate WAV for '%s': pyttsx3 unavailable.", word)
+            log.warning("Cannot generate WAV for '%s': espeak-ng unavailable.", word)
             return
-        try:
-            _tts.save_to_file(word.lower(), path)
-            _tts.runAndWait()
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        if speak_direct(word.lower(), out_path=path):
             log.info("WAV generated: %s → %s", word, path)
-        except Exception as exc:
-            log.error("WAV generation failed for '%s': %s", word, exc)
+        else:
+            log.error("WAV generation failed for '%s'", word)
 
     def _load_to_cache(self, word: str, path: str):
         if _PG and os.path.exists(path):
@@ -264,18 +328,19 @@ class AudioOutput:
 # ══════════════════════════════════════════════════════════════════════════════
 def generate_v2_audio():
     """
-    Pre-render YES/NO WAV files using pyttsx3.
-    Run once on any machine that has speakers, copy audio/ to Pi.
+    Pre-render YES/NO WAV files using espeak-ng.
+    Run once on any machine, copy audio/ to Pi.
     """
     if not _TTS:
-        print("pyttsx3 not available. pip install pyttsx3")
+        print("espeak-ng not available. Install with: sudo apt install espeak-ng")
         return
     os.makedirs(config.AUDIO_DIR, exist_ok=True)
     for word in ["YES", "NO"]:
         path = os.path.join(config.AUDIO_DIR, f"{word.lower()}.wav")
-        _tts.save_to_file(word.lower(), path)
-        _tts.runAndWait()
-        print(f"Saved: {path}")
+        if speak_direct(word.lower(), out_path=path):
+            print(f"Saved: {path}")
+        else:
+            print(f"Failed: {path}")
     print("Done. Copy audio/ to Pi.")
 
 

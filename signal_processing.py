@@ -181,4 +181,5 @@ def band_power(signal: np.ndarray, fs: float, low: float, high: float) -> float:
     idx = np.logical_and(freqs >= low, freqs <= high)
     if not np.any(idx):
         return 0.0
-    return float(np.trapz(psd[idx], freqs[idx]))
+    _trapz = getattr(np, "trapezoid", None) or np.trapz
+    return float(_trapz(psd[idx], freqs[idx]))

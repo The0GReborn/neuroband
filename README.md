@@ -24,6 +24,18 @@ python main.py                    # normal boot — runs the wizard automaticall
 ```
 Full flag reference: see `commands_ref.md`.
 
+### The `neuroband` command (optional convenience)
+`bin/neuroband` is a repo-tracked wrapper so you can type `neuroband --setup`
+instead of `python main.py --setup` from any directory. One-time setup:
+```bash
+bash docs/install.sh
+source ~/.bashrc   # or open a new shell
+neuroband --help
+```
+It just `cd`s into the repo, activates `.venv` if present, and execs
+`python3 main.py "$@"` — every flag documented for `main.py` works
+identically through `neuroband`.
+
 ### New modules (not covered in the "Module Explanations" section below)
 | Module | Role |
 |---|---|

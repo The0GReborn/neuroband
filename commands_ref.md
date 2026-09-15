@@ -1,6 +1,10 @@
 # NeuroBand — CLI Command Reference
 
 > All commands run from `/home/pi/neuroband/` (or your project root on Windows).
+>
+> Every command below is shown as `python main.py ...`. If you've run
+> `bash docs/install.sh` once, you can use `neuroband ...` instead, from any
+> directory — same flags, same behavior. See `README.md` for setup.
 
 ---
 
@@ -217,6 +221,8 @@ python simulator.py --pipeline --retrain --words YES NO HELLO HELP --duration 3.
 
 | Path | Description |
 |------|-------------|
+| `bin/neuroband` | Repo-tracked CLI wrapper — resolves its own location, works from any pwd |
+| `docs/install.sh` | One-time setup: symlinks `bin/neuroband` onto `PATH` |
 | `config_manager.py` | Owns `config/user_config.json` + `config/setup_state.json` |
 | `setup_wizard.py` | Interactive first-run wizard (device/audio/EEG/vocab/train/calibrate) |
 | `v3_engine.py` | Shared V3 object-graph builder, reused by `main.py`, the wizard, and the dashboard CLI |

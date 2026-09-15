@@ -171,6 +171,7 @@ Brain activity
 | **Function** | Boost converter + charge controller. Steps up 3.7V battery to stable 5V USB output for the Pi. Also charges the 18650 cells via micro-USB input |
 | **Connects to** | 18650 cells plug into B+ B− pads on board. USB output → micro-USB cable → Pi power port. Charge input via micro-USB from any phone charger |
 | **Buy URL** | https://robu.in/product/18650-5v-1a-2a-lithium-battery-digital-display-charging-module-with-dual-usb-output-quick-charge-supported/ |
+| **Unit in use** | Xcluma "charging discharging boost converter, 3.3V→5V" — same B+/B−/USB-out/USB-in layout as above. **Double-check B+/B− polarity before connecting the cell** — reversed polarity into a Li-ion charge/protection board is one of the few genuinely risky mistakes in this build. |
 
 ---
 
@@ -227,11 +228,31 @@ Brain activity
 ## GPIO Wiring Reference
 
 ```
-CS1237 #1 (F3-A1 channel)      CS1237 #2 (F4-A1 channel)
-  DOUT  →  Pi GPIO 9              DOUT  →  Pi GPIO 10
-  SCLK  →  Pi GPIO 11             SCLK  →  Pi GPIO 11  (shared)
-  VCC   →  Pi 3.3V                VCC   →  Pi 3.3V
-  GND   →  Pi GND                 GND   →  Pi GND
+CS1237 #1 (F3 channel)          CS1237 #2 (F4 channel)
+  DOUT  →  Pi GPIO 9  (pin 21)    DOUT  →  Pi GPIO 10 (pin 19)
+  SCLK  →  Pi GPIO 11 (pin 23)    SCLK  →  Pi GPIO 11 (pin 23)  (shared)
+  DVDD  →  Pi 3.3V (pin 1/17)     DVDD  →  Pi 3.3V (pin 1/17)   (shared)
+  DGND  →  Pi GND (pin 6/9/...)   DGND  →  Pi GND (pin 6/9/...) (shared)
+```
+Physical pin numbers are for the standard 40-pin header (same on Pi 3A+ as
+Pi Zero 2 W). Only GPIO9, GPIO10, GPIO11 are used — nothing else on the
+40-pin header is touched by this project.
+
+### CS1237 analog side (BioAmp → ADC), per module
+```
+BioAmp OUT  → ADC A+      (signal input)
+BioAmp GND  → ADC AGND    (analog ground reference)
+              ADC A−      → also tied to AGND (differential input needs
+                             both legs referenced; A− is not driven by
+                             the single-ended BioAmp output)
+BioAmp VCC  → ADC AVDD    (analog supply)
+```
+
+### BioAmp cable V3 wire color code (per Upside Down Labs)
+```
+Red    = IN+
+Black  = IN−
+Yellow = REF
 ```
 
 ---
@@ -239,13 +260,33 @@ CS1237 #1 (F3-A1 channel)      CS1237 #2 (F4-A1 channel)
 ## Electrode Placement Reference
 
 ```
-F3  — Left forehead    → BioAmp #1 IN+
-F4  — Right forehead   → BioAmp #2 IN+
-A1  — Left earlobe     → BioAmp #1 IN− and BioAmp #2 IN− (shared)
-Fpz — Center hairline  → BioAmp #1 REF and BioAmp #2 REF (shared ground)
+F3  — Left forehead    → BioAmp #1 IN+ (red)
+F4  — Right forehead   → BioAmp #2 IN+ (red)
+A1  — Left earlobe     → BioAmp #1 IN− (black)
+A2  — Right earlobe    → BioAmp #2 IN− (black)
+Fpz — Center hairline  → BioAmp #1 REF and BioAmp #2 REF (yellow, both — shared ground)
 ```
 
+**This differs from an earlier draft of this doc**, which specified a
+single shared A1 for both pills' IN− (black) wires. A1+A2 (separate
+earlobe per pill) was chosen instead specifically to avoid physically
+bridging the two black signal wires onto one electrode — only the
+yellow (REF/ground) wires are meant to be joined together, at Fpz.
+
+**Earlobe electrode stability:** earlobe skin is soft and moves more than
+forehead skin, so flat adhesive gel electrodes there are more prone to
+shifting/peeling than on the forehead. Mitigations, in order of effort:
+1. Tape the wire to skin/headband an inch before the electrode (strain relief)
+2. Add a strip of tape over the electrode itself after placement
+3. **Move A1/A2 to the mastoid (M1/M2)** — the bony area behind the ear —
+   instead of the earlobe. Skin over bone is more stable for adhesive
+   electrodes than earlobe skin. This is a standard alternative EEG
+   reference site if earlobe motion artifacts turn out to be a problem
+   in practice.
+
 ---
+
+
 
 ## Notes
 

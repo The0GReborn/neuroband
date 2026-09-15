@@ -11,6 +11,16 @@ V3 usage:
   python main.py --no-quality           # skip signal quality check
   python main.py --no-server            # no web app, terminal only
 
+Dashboard usage (separate from scanning/inference — never auto-trains):
+  python main.py -dashboard             # web dashboard (default)
+  python main.py -dashboard -server     # web dashboard, explicit
+  python main.py -dashboard -terminal   # terminal (rich) dashboard, for headless SSH
+
+Setup usage:
+  python main.py --setup                # force the full config/train/calibrate wizard
+  python main.py --voice                # reopen just voice/speed/pitch config
+  python main.py --retrain              # vocabulary + training + calibration only
+
 V2 usage (legacy fallback):
   python main.py --v2                   # v2 inference with LDA
   python main.py --v2 --simulate        # v2 simulation
@@ -46,6 +56,7 @@ import numpy as np
 
 import config
 import config_manager
+import v3_engine
 from adc_reader        import ADCReader
 from signal_processing import SignalProcessor
 from feature_extraction import FeatureExtractor
@@ -75,81 +86,14 @@ log = logging.getLogger("main")
 # ══════════════════════════════════════════════════════════════════════════════
 #  Shared helpers
 # ══════════════════════════════════════════════════════════════════════════════
-class WindowManager:
-    """Sliding window over ADCReader ring buffer."""
-    def __init__(self, reader, step):
-        self._reader = reader
-        self._step   = step
-        self._last   = None
-
-    def next(self):
-        avail = self._reader.samples_available()
-        if avail < config.WINDOW_SAMPLES:
-            return None
-        if self._last is None:
-            self._last = avail
-            return self._reader.get_latest(config.WINDOW_SAMPLES)
-        if avail - self._last < self._step:
-            return None
-        self._last = avail
-        return self._reader.get_latest(config.WINDOW_SAMPLES)
-
-
-def _run_quality_check(reader, simulate):
-    if simulate:
-        print("Quality check skipped (simulation).\n")
-        return "GOOD"
-    print("\n[1/2] Signal quality check...")
-    report = QualityChecker().check(reader)
-    report.print()
-    return report.overall
-
-
-def _run_calibration(reader, processor, extractor, calibrator, simulate):
-    if simulate:
-        print("Calibration skipped (simulation).\n")
-        return
-    print("\n[2/2] Auto-calibration (30s) — sit still, close eyes.")
-    for i in range(3, 0, -1):
-        print(f"  {i}...", flush=True)
-        time.sleep(1)
-    print("  GO!\n", flush=True)
-
-    feats, deadline = [], time.time() + config.CALIBRATION_DURATION
-    last_s, step    = None, config.SAMPLE_RATE // 4
-
-    while time.time() < deadline:
-        avail = reader.samples_available()
-        if avail < config.WINDOW_SAMPLES:
-            time.sleep(0.01); continue
-        if last_s is None:
-            last_s = avail
-        elif avail - last_s < step:
-            time.sleep(0.01); continue
-        else:
-            last_s = avail
-
-        raw   = reader.get_latest(config.WINDOW_SAMPLES)
-        clean = processor.process(raw)
-        if clean is None: continue
-        fv = extractor.extract(clean)
-        if fv is not None: feats.append(fv)
-        print(f"\r  Calibrating... {int(deadline-time.time())}s "
-              f"({len(feats)} windows)", end="", flush=True)
-
-    print()
-    if len(feats) >= 3:
-        import pickle
-        X = np.array(feats)
-        calibrator._mean   = X.mean(axis=0)
-        calibrator._std    = X.std(axis=0)
-        calibrator._loaded = True
-        os.makedirs(os.path.dirname(config.CALIBRATION_PATH), exist_ok=True)
-        with open(config.CALIBRATION_PATH, "wb") as f:
-            pickle.dump({"mean": calibrator._mean, "std": calibrator._std}, f)
-        print("Calibration complete.\n")
-    else:
-        print("WARNING: calibration failed — proceeding without baseline.\n")
+# ══════════════════════════════════════════════════════════════════════════════
+#  Shared helpers — WindowManager / quality-check / calibration now live in
+#  v3_engine.py so the dashboard CLI and the wizard can reuse them without
+#  duplicating this logic. Kept as thin aliases here for readability.
+# ══════════════════════════════════════════════════════════════════════════════
+WindowManager      = v3_engine.WindowManager
+_run_quality_check = v3_engine.run_quality_check
+_run_calibration   = v3_engine.run_calibration
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -159,31 +103,16 @@ def run_v3(simulate=False, skip_calib=False, skip_quality=False, no_server=False
     log.info("=== NeuroBand v3 (simulate=%s) ===", simulate)
     config.VERSION = "3"
 
-    word_mgr   = WordManager()
-    knn        = KNNClassifier()
-    # v5.2: EMAVoter replaces DemocracyVoter; initialise with all word classes + REST
-    _ema_classes = list(word_mgr.words) + (["REST"] if "REST" not in word_mgr.words else [])
-    voter      = EMAVoter(classes=_ema_classes)
-    processor  = SignalProcessor()
-    extractor  = FeatureExtractor()
-    calibrator = Calibrator()
-    audio      = AudioOutput(mode="v3")
-
-    audio.pregenerate(word_mgr.words)
-
-    reader = ADCReader(
-        simulate  = simulate,
-        mode      = "v3",
-        word      = word_mgr.words[0] if word_mgr.words else "HELLO",
-        word_list = word_mgr.words,
-    )
-    reader.start()
-
-    print("DEBUG: before pattern_trainer import", flush=True)
-    from pattern_trainer import SessionManager
-    print("DEBUG: after import, before init", flush=True)
-    session_mgr = SessionManager(reader, word_mgr, knn, voter=voter, simulate=simulate)
-    print("DEBUG: SessionManager init done", flush=True)
+    engine     = v3_engine.build_v3_engine(simulate=simulate, start_reader=True)
+    word_mgr   = engine["word_mgr"]
+    knn        = engine["knn"]
+    voter      = engine["voter"]
+    processor  = engine["processor"]
+    extractor  = engine["extractor"]
+    calibrator = engine["calibrator"]
+    audio      = engine["audio"]
+    reader     = engine["reader"]
+    session_mgr = engine["session_mgr"]
 
     _running = [True]
     signal.signal(signal.SIGINT,  lambda s, f: _running.__setitem__(0, False))
@@ -199,30 +128,35 @@ def run_v3(simulate=False, skip_calib=False, skip_quality=False, no_server=False
     push_pred = lambda l, c, v: None
 
     if not no_server:
-        try:
-            from app_server import create_app
-            app, socketio = create_app(word_mgr, knn, voter, session_mgr, audio)
+        if v3_engine.port_in_use(config.V3_HOST, config.V3_PORT):
+            print(f"Web app already running → {v3_engine.dashboard_url()}\n"
+                  f"(not starting a duplicate server)\n")
+        else:
+            try:
+                from app_server import create_app
+                app, socketio = create_app(word_mgr, knn, voter, session_mgr, audio)
 
-            def _push(label, conf, votes):
-                socketio.emit("prediction", {
-                    "label":      label,
-                    "confidence": round(conf, 3),
-                    "votes":      votes,
-                    "timestamp":  time.time(),
-                })
-            push_pred = _push
+                def _push(label, conf, votes):
+                    socketio.emit("prediction", {
+                        "label":      label,
+                        "confidence": round(conf, 3),
+                        "votes":      votes,
+                        "timestamp":  time.time(),
+                    })
+                push_pred = _push
 
-            threading.Thread(
-                target=lambda: socketio.run(
-                    app, host=config.V3_HOST, port=config.V3_PORT,
-                    debug=False, use_reloader=False, log_output=False,
-                ),
-                daemon=True, name="AppServer",
-            ).start()
-            print(f"Web app → http://192.168.4.1:{config.V3_PORT}\n")
-        except ImportError as e:
-            print(f"App server disabled ({e}).\n"
-                  "pip install flask flask-socketio eventlet\n")
+                threading.Thread(
+                    target=lambda: socketio.run(
+                        app, host=config.V3_HOST, port=config.V3_PORT,
+                        debug=False, use_reloader=False, log_output=False,
+                        allow_unsafe_werkzeug=True,
+                    ),
+                    daemon=True, name="AppServer",
+                ).start()
+                print(f"Web app → {v3_engine.dashboard_url()}\n")
+            except ImportError as e:
+                print(f"App server disabled ({e}).\n"
+                      "pip install flask flask-socketio eventlet\n")
 
     # ── Inference loop ────────────────────────────────────────────────────────
     log.info("V3 inference loop. Step=%d samples (%.0f ms)",
@@ -501,6 +435,16 @@ if __name__ == "__main__":
     ap.add_argument("--retrain", action="store_true",
                     help="[v3] Reopen vocabulary + training + calibration (keeps device/audio config)")
 
+    # Dashboard flags [v3] — separate mode from scanning/inference, training,
+    # configuration, and calibration. Never auto-starts training.
+    ap.add_argument("-dashboard", action="store_true",
+                    help="[v3] View NeuroBand's dashboard (default: web). "
+                         "Combine with -server or -terminal.")
+    ap.add_argument("-server",   action="store_true",
+                    help="[v3] With -dashboard: use the web (Flask/SocketIO) dashboard")
+    ap.add_argument("-terminal", action="store_true",
+                    help="[v3] With -dashboard: use the terminal (rich) dashboard")
+
     args = ap.parse_args()
 
     if args.v2:
@@ -518,6 +462,20 @@ if __name__ == "__main__":
     elif args.retrain:
         import setup_wizard
         setup_wizard.run_retrain(simulate=args.simulate)
+    elif args.dashboard:
+        # Dashboard is its own mode: it never runs the setup wizard, never
+        # starts training/retraining on its own, and (for -terminal) never
+        # also starts the web server, and vice versa.
+        import dashboard_cli
+        if args.terminal:
+            dashboard_cli.launch_terminal_dashboard(
+                simulate=args.simulate,
+                skip_quality=args.no_quality,
+                skip_calib=args.no_calib,
+            )
+        else:
+            # -server, or bare -dashboard: default to the web dashboard.
+            dashboard_cli.launch_web_dashboard(simulate=args.simulate)
     else:
         # First-run (or explicit --setup) detection: don't jump straight into
         # inference until the device has been configured, trained, and

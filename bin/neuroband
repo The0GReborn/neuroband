@@ -1,0 +1,38 @@
+#!/bin/bash
+# neuroband — convenience wrapper for `python main.py`, part of the repo
+# so it works for anyone who clones it, not just one machine's setup.
+#
+# Usage: neuroband [any main.py flag]
+#   neuroband --setup
+#   neuroband -dashboard -terminal
+#   neuroband --simulate --no-calib --no-quality
+#
+# Install (one-time, from the repo root):
+#   mkdir -p ~/.local/bin
+#   ln -sf "$(pwd)/bin/neuroband" ~/.local/bin/neuroband
+#   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # if not already on PATH
+#   source ~/.bashrc
+#
+# See also: docs/install.sh, which does the above automatically.
+
+set -euo pipefail
+
+# Resolve this script's real location (follows symlinks), so `neuroband`
+# works correctly even when invoked via a symlink from ~/.local/bin.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$REPO_ROOT"
+
+if [ -f ".venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+
+exec python3 main.py "$@"

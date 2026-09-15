@@ -154,7 +154,7 @@ class SignalProcessor:
         mean = data.mean(axis=1, keepdims=True)
         std  = data.std(axis=1, keepdims=True) + 1e-12   # avoid div-by-zero
         log.debug("_normalise: ch0 mean=%.4f std=%.4f | ch1 mean=%.4f std=%.4f",
-                  float(mean[0]), float(std[0]), float(mean[1]), float(std[1]))
+                  float(mean[0, 0]), float(std[0, 0]), float(mean[1, 0]), float(std[1, 0]))
         z    = (data - mean) / std
         return np.clip(z, -5.0, 5.0)
 
@@ -181,4 +181,5 @@ def band_power(signal: np.ndarray, fs: float, low: float, high: float) -> float:
     idx = np.logical_and(freqs >= low, freqs <= high)
     if not np.any(idx):
         return 0.0
-    return float(np.trapz(psd[idx], freqs[idx]))
+    _trapz = getattr(np, "trapezoid", None) or np.trapz
+    return float(_trapz(psd[idx], freqs[idx]))

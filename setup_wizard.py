@@ -225,6 +225,7 @@ def step_training(word_mgr: WordManager, simulate: bool) -> bool:
     knn = KNNClassifier()
     session_mgr = SessionManager(reader, word_mgr, knn, simulate=simulate)
 
+    failed_words = []
     try:
         for word in pending:
             print(f"\n--- Training '{word}' ---")
@@ -242,13 +243,27 @@ def step_training(word_mgr: WordManager, simulate: bool) -> bool:
             ok, msg = session_mgr.start(word, config.V3_TARGET_TRIALS, _emit)
             if not ok:
                 print(f"  Could not start training for '{word}': {msg}")
+                failed_words.append(word)
                 continue
 
             while session_mgr._session and session_mgr._session.is_running():
                 time.sleep(0.2)
             print()
+
+            # Don't trust the session's own report blindly — verify against
+            # WordManager's actual saved sample count for this word.
+            collected = word_mgr.sample_counts().get(word, 0)
+            if collected < config.V3_MIN_SAMPLES:
+                print(f"  WARNING: '{word}' only has {collected} sample(s) "
+                      f"(need >= {config.V3_MIN_SAMPLES}) — signal was likely rejected as noisy.")
+                failed_words.append(word)
     finally:
         reader.stop()
+
+    if failed_words:
+        print(f"\nTraining incomplete for: {', '.join(failed_words)}. "
+              f"Re-run 'python main.py --retrain' once electrode/signal quality is fixed.")
+        return False
 
     return True
 

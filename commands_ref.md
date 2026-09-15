@@ -2,9 +2,38 @@
 
 > All commands run from `/home/pi/neuroband/` (or your project root on Windows).
 >
-> Every command below is shown as `python main.py ...`. If you've run
-> `bash docs/install.sh` once, you can use `neuroband ...` instead, from any
-> directory — same flags, same behavior. See `README.md` for setup.
+> **First time on this machine?** Run `bash install.sh` once — it installs
+> everything (system packages, `.venv`, Python deps, the `neuroband`
+> command) and offers to launch the setup wizard. See `README.md` for
+> details.
+>
+> Every command below is shown as `python main.py ...`. Once `install.sh`
+> (or just `bash docs/install.sh`) has run, you can use `neuroband ...`
+> instead, from any directory — same flags, same behavior.
+
+---
+
+## `install.sh` — Full Environment Setup
+
+```bash
+bash install.sh                    # interactive — prompts before each step
+bash install.sh --yes              # don't prompt — assume yes to everything
+bash install.sh --no-wizard        # set up the environment, skip the
+                                    # "launch wizard now?" offer at the end
+bash install.sh --yes --no-wizard --simulate
+                                    # fully non-interactive, environment only
+```
+
+### All `install.sh` Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--yes` | bool | off | Don't prompt before installing system packages or launching the wizard |
+| `--no-wizard` | bool | off | Skip the "launch wizard now?" step entirely |
+| `--simulate` | bool | off | If the wizard is launched, launch it with `--simulate` |
+
+Idempotent — safe to re-run any time (e.g. after a `git pull` that adds a
+new dependency).
 
 ---
 
@@ -221,8 +250,9 @@ python simulator.py --pipeline --retrain --words YES NO HELLO HELP --duration 3.
 
 | Path | Description |
 |------|-------------|
+| `install.sh` | Full automated environment setup — system packages, `.venv`, Python deps, CLI, offers to launch the wizard. Run once: `bash install.sh` |
 | `bin/neuroband` | Repo-tracked CLI wrapper — resolves its own location, works from any pwd |
-| `docs/install.sh` | One-time setup: symlinks `bin/neuroband` onto `PATH` |
+| `docs/install.sh` | Sets up just the `neuroband` command on `PATH` (also called by `install.sh`) |
 | `config_manager.py` | Owns `config/user_config.json` + `config/setup_state.json` |
 | `setup_wizard.py` | Interactive first-run wizard (device/audio/EEG/vocab/train/calibrate) |
 | `v3_engine.py` | Shared V3 object-graph builder, reused by `main.py`, the wizard, and the dashboard CLI |

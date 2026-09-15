@@ -16,17 +16,36 @@
 ## V3 Operations (current)
 
 ### Getting started
+
+**Automated (recommended):**
 ```bash
-python main.py --setup            # first-time wizard: device, voice, EEG review,
-                                   # vocabulary, training, calibration
-python main.py                    # normal boot — runs the wizard automatically
-                                   # if setup isn't READY yet, then scans
+bash install.sh
 ```
-Full flag reference: see `commands_ref.md`.
+Installs system packages (`espeak-ng`, `python3-venv`, `python3-rpi.gpio`),
+creates `.venv`, installs all Python dependencies, sets up the `neuroband`
+command, and offers to launch the setup wizard — all idempotent, safe to
+re-run. Flags: `--yes` (don't prompt), `--no-wizard` (skip the wizard-launch
+offer), `--simulate` (if launching the wizard, launch it with `--simulate`).
+
+**Manual, if you'd rather do it step by step:**
+```bash
+sudo apt update && sudo apt install -y espeak-ng python3-venv python3-rpi.gpio
+python3 -m venv --system-site-packages .venv   # --system-site-packages is
+source .venv/bin/activate                       # required for RPi.GPIO to
+pip install flask flask-socketio numpy scipy scikit-learn joblib pygame rich
+bash docs/install.sh    # sets up the `neuroband` command
+python main.py --setup  # or: neuroband --setup
+```
+
+On a normal `python main.py` (or `neuroband`, no flags) after setup, the
+wizard launches automatically the first time (when
+`config/setup_state.json` isn't `READY` yet) — you don't have to remember
+`--setup` for a genuinely first-ever run.
 
 ### The `neuroband` command (optional convenience)
 `bin/neuroband` is a repo-tracked wrapper so you can type `neuroband --setup`
-instead of `python main.py --setup` from any directory. One-time setup:
+instead of `python main.py --setup` from any directory. `install.sh` sets
+this up automatically; to do it on its own, without the rest of `install.sh`:
 ```bash
 bash docs/install.sh
 source ~/.bashrc   # or open a new shell

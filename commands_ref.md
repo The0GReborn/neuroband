@@ -6,7 +6,38 @@
 
 ## `main.py` — Main Entry Point
 
-### V3 Mode (default)
+### First-time setup / configuration (v3)
+
+```bash
+python main.py --setup                  # Force the full config/train/calibrate wizard
+python main.py --setup --simulate       # Same, without real hardware
+python main.py --voice                  # Reopen just voice/speed/pitch config
+python main.py --retrain                # Vocabulary + training + calibration only
+python main.py --retrain --simulate     # Same, without real hardware
+```
+
+On a normal `python main.py` with no flags, the wizard launches automatically
+the first time (when `config/setup_state.json` isn't `READY` yet) — you don't
+have to remember `--setup` for a genuinely first-ever run.
+
+### Dashboard modes (v3)
+
+Separate from scanning/inference, training, configuration, and calibration.
+Starting a dashboard never starts training on its own.
+
+```bash
+python main.py -dashboard               # Web dashboard (default)
+python main.py -dashboard -server       # Web dashboard, explicit
+python main.py -dashboard -terminal     # Terminal (rich) dashboard — works over
+                                         # headless SSH / Raspberry Pi Connect
+```
+
+`-dashboard -server` detects an already-running server (from a separate
+`python main.py` scanning session, or another `-dashboard -server` call) and
+just prints its URL instead of starting a duplicate. The printed URL uses the
+device's real detected LAN IP, never a hard-coded address.
+
+### V3 Mode (default, once configured)
 
 ```bash
 python main.py                          # V3 inference + web app (requires hardware)
@@ -40,6 +71,12 @@ python main.py --v2 --train YES --duration 90   # Custom duration (seconds)
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `--setup` | bool | off | *(v3)* Force the full config/train/calibrate wizard |
+| `--voice` | bool | off | *(v3)* Reopen just voice/speed/pitch config |
+| `--retrain` | bool | off | *(v3)* Vocabulary + training + calibration only |
+| `-dashboard` | bool | off | *(v3)* Show the dashboard (default: web) |
+| `-server` | bool | off | *(v3)* With `-dashboard`: use the web dashboard |
+| `-terminal` | bool | off | *(v3)* With `-dashboard`: use the terminal dashboard |
 | `--v2` | bool | off | Run legacy V2 LDA pipeline |
 | `--simulate` | bool | off | Simulate ADC — no hardware needed |
 | `--no-calib` | bool | off | Skip auto-calibration |
@@ -180,6 +217,12 @@ python simulator.py --pipeline --retrain --words YES NO HELLO HELP --duration 3.
 
 | Path | Description |
 |------|-------------|
+| `config_manager.py` | Owns `config/user_config.json` + `config/setup_state.json` |
+| `setup_wizard.py` | Interactive first-run wizard (device/audio/EEG/vocab/train/calibrate) |
+| `v3_engine.py` | Shared V3 object-graph builder, reused by `main.py`, the wizard, and the dashboard CLI |
+| `dashboard_cli.py` | `-dashboard -server` / `-dashboard -terminal` entry points |
+| `config/user_config.json` | Device name, audio voice/speed/pitch, EEG hardware snapshot |
+| `config/setup_state.json` | `NOT_CONFIGURED` → `CONFIGURED` → `TRAINED` → `READY` |
 | `models/neuroband_model.pkl` | V2 LDA / Random Forest model |
 | `models/v3_knn.pkl` | V3 k-NN model (session-trained) |
 | `models/baseline.pkl` | Calibration baseline (mean/std per feature) |
@@ -188,4 +231,4 @@ python simulator.py --pipeline --retrain --words YES NO HELLO HELP --duration 3.
 | `logs/v3/<WORD>.npz` | V3 per-word EEG feature datasets |
 | `logs/neuroband.log` | Runtime log file |
 | `audio/yes.wav` / `audio/no.wav` | V2 audio output files |
-| `audio/v3/<WORD>.wav` | V3 per-word audio files |
+| `audio/v3/<WORD>.wav` | V3 per-word audio files (generated via espeak-ng, not pyttsx3) |

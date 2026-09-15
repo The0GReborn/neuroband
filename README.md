@@ -2,6 +2,66 @@
 
 ---
 
+> **Note on this document (added while wiring up the setup wizard / dashboard
+> CLI):** most of the content below describes the **original V2 pipeline**
+> (LDA classifier, `EEGLogger`, `VoteBuffer`, `SimulatedADC`) which predates
+> the current V3 system (k-NN + `SessionManager` + `WordManager` +
+> `EMAVoter`). It's kept here for historical/V2 reference, but if you're
+> working with the current codebase, read the **V3 Operations (current)**
+> section below first — the rest of this file may describe classes and
+> files that either no longer exist or have been superseded.
+
+---
+
+## V3 Operations (current)
+
+### Getting started
+```bash
+python main.py --setup            # first-time wizard: device, voice, EEG review,
+                                   # vocabulary, training, calibration
+python main.py                    # normal boot — runs the wizard automatically
+                                   # if setup isn't READY yet, then scans
+```
+Full flag reference: see `commands_ref.md`.
+
+### New modules (not covered in the "Module Explanations" section below)
+| Module | Role |
+|---|---|
+| `config_manager.py` | Owns `config/user_config.json` (device/audio/EEG) and `config/setup_state.json` (`NOT_CONFIGURED → CONFIGURED → TRAINED → READY`). `config.py` applies these overrides on import. |
+| `setup_wizard.py` | Interactive first-run flow. Reuses `WordManager`, `SessionManager`, `Calibrator`, `QualityChecker` — doesn't reimplement them. |
+| `v3_engine.py` | Shared V3 object-graph builder (`build_v3_engine`) and quality-check/calibration helpers, used by `main.py`, `setup_wizard.py`, and `dashboard_cli.py` so all three stay in sync. Also has `get_local_ip()`/`port_in_use()` so no dashboard URL is ever hard-coded and no command starts a duplicate Flask/SocketIO server. |
+| `dashboard_cli.py` | Wires up the **existing** `app_server.py` (web) and `dashboard.py` (terminal, `rich`-based) for `-dashboard -server` / `-dashboard -terminal`. Neither dashboard implementation was rewritten — `dashboard.py` in particular existed in the repo already but was never actually called from anywhere until this. |
+
+### Audio engine — espeak-ng, not pyttsx3
+`audio_output.py` generates speech via a direct `espeak-ng` subprocess call
+(voice/speed/pitch, dynamically detected via `espeak-ng --voices`), not
+`pyttsx3` — pyttsx3 didn't expose real pitch control. Requires
+`sudo apt install espeak-ng` on the Pi.
+
+### Known issues (found while building the above, not yet all fixed)
+- **Fixed:** `signal_processing.py`'s band-power helper used `np.trapz`,
+  removed in NumPy 2.0+ (renamed `np.trapezoid`). Patched to support both.
+- **Fixed:** a debug-log line in `SignalProcessor._normalise()` crashed
+  unconditionally on NumPy 2.0+ (`float()` of a keepdims-shaped 1-element
+  array), which was silently killing the web app's background thread —
+  `main.py` printed "Web app → ..." even though the server had already
+  crashed. Also needed `allow_unsafe_werkzeug=True` on `socketio.run()` for
+  current `flask-socketio` versions to run outside Flask's debug/reloader
+  context.
+- **Not fixed / known limitation:** `SignalProcessor._apply_bandpass()` uses
+  a **stateful streaming filter** (`sosfilt` with persistent `zi`), correct
+  for a real continuous ADC stream but **not** for simulated training, which
+  generates disconnected synthetic bursts per trial. Feeding those into the
+  stateful filter destabilizes it (observed peak amplitude >1,000,000 µV
+  after filtering), which trips the 200 µV artifact-rejection threshold and
+  rejects every simulated training window. **This means `--setup --simulate`
+  and `--retrain --simulate` will reliably show 0 samples collected per
+  word during Training** — that's this known issue, not a new bug. Real
+  hardware training should be unaffected since real EEG genuinely is
+  continuous.
+
+---
+
 ## Project File Structure
 
 ```
